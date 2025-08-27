@@ -1,0 +1,27 @@
+{
+  "name": "streamlit-tv-app",
+  "version": "1.0.0",
+  "description": "IPTV Playlist Manager with Series Management",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js",
+    "client": "cd client && npm start",
+    "build": "cd client && npm run build",
+    "install-client": "cd client && npm install",
+    "heroku-postbuild": "npm run install-client && npm run build"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "dotenv": "^16.3.1",
+    "axios": "^1.6.0",
+    "aria2": "^1.0.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.0.1"
+  },
+  "keywords": ["iptv", "streaming", "series", "playlist"],
+  "author": "Your Name",
+  "license": "MIT"
+}

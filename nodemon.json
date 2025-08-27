@@ -1,0 +1,17 @@
+{
+  "watch": ["server.js", "libraries/"],
+  "ignore": [
+    "downloads/",
+    "client/",
+    "node_modules/",
+    "*.json",
+    "*.log",
+    "*.csv",
+    "*.m3u",
+    "*.m3u8"
+  ],
+  "ext": "js,json",
+  "env": {
+    "NODE_ENV": "development"
+  }
+}
