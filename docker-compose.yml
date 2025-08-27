@@ -12,7 +12,7 @@ services:
       - .env
     restart: unless-stopped
     volumes:
-      - ./downloads:/downloads
+      - ./downloads:/app/downloads
     networks:
       - iptv-network
 

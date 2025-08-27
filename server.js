@@ -93,8 +93,8 @@ app.get('/api/series', async (req, res) => {
         let series;
         // If file containing series is found, read it
         if (fs.existsSync('downloads/series.json') && req.query.refresh !== 'true') {
-            series = JSON.parse(fs.readFileSync('downloads/series.json', 'utf8'));
             console.log('Series file found, reading from file');
+            series = JSON.parse(fs.readFileSync('downloads/series.json', 'utf8'));
         } else {
             console.log('Series file not found, fetching from TVHeadend');
             const response = await axios.get(buildApiUrl('get_series'));
