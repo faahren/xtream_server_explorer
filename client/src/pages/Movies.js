@@ -12,6 +12,7 @@ const FiltersContainer = styled.div`
   display: flex;
   gap: 1rem;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
 `;
 
 const SearchInput = styled.input`

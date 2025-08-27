@@ -14,6 +14,7 @@ const Header = styled.div`
   justify-content: space-between;
   align-items: center;
   margin-bottom: 2rem;
+  flex-wrap: wrap;
 `;
 
 const Title = styled.h1`
@@ -25,6 +26,7 @@ const SearchContainer = styled.div`
   display: flex;
   gap: 1rem;
   align-items: center;
+  flex-wrap: wrap;
 `;
 
 const SearchInput = styled.input`
