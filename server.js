@@ -34,7 +34,7 @@ function buildApiUrl(action, params = {}) {
 
 // Helper function to build stream URLs
 function buildStreamUrl(streamType, streamId, extension = '') {
-    const baseUrl = `http://${XTREAM_HOSTNAME}/${streamType}/${XTREAM_USER}/${XTREAM_PASSWORD}`;
+    const baseUrl = `https://${XTREAM_HOSTNAME}/${streamType}/${XTREAM_USER}/${XTREAM_PASSWORD}`;
     return extension ? `${baseUrl}/${streamId}.${extension}` : `${baseUrl}/${streamId}`;
 }
 

@@ -443,33 +443,18 @@ function TV() {
     setStatus('Connecting...');
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    const hlsUrl = ch.stream_url.replace(/\.[^/.]+$/, '') + '.m3u8';
-    const proxyUrl = `/api/stream-proxy?url=${encodeURIComponent(hlsUrl)}`;
-
-    const tryLoad = (url, isRetry = false) => {
-      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: true, xhrSetup: (xhr) => { xhr.withCredentials = false; } });
-      hlsRef.current = hls;
-      hls.loadSource(url);
-      hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus('Playing'); video.play().catch(() => {}); });
-      hls.on(Hls.Events.ERROR, (_, d) => {
-        if (d.fatal) {
-          if (!isRetry && (d.details === 'manifestLoadError' || d.details === 'manifestParsingError')) {
-            // Direct failed — retry via proxy
-            setStatus('Retrying via proxy...');
-            tryLoad(proxyUrl, true);
-          } else {
-            setStatus(`Error: ${d.details}`);
-          }
-        }
-      });
-    };
+    // Force https to avoid mixed-content blocks on HTTPS pages
+    const hlsUrl = ch.stream_url.replace(/^http:\/\//, 'https://').replace(/\.[^/.]+$/, '') + '.m3u8';
 
     if (Hls.isSupported()) {
-      tryLoad(hlsUrl); // try direct first
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+      hlsRef.current = hls;
+      hls.loadSource(hlsUrl);
+      hls.attachMedia(video);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus('Playing'); video.play().catch(() => {}); });
+      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setStatus(`Error: ${d.details}`); });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = proxyUrl;
+      video.src = hlsUrl;
       video.play().catch(() => {});
       setStatus('Playing');
     }
