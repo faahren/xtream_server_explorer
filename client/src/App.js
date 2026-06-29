@@ -1,5 +1,5 @@
 import React from 'react';
-import { Routes, Route } from 'react-router-dom';
+import { Routes, Route, useLocation } from 'react-router-dom';
 import styled from 'styled-components';
 import Navbar from './components/Navbar';
 import Home from './pages/Home';
@@ -8,6 +8,7 @@ import SeriesDetail from './pages/SeriesDetail';
 import Playlist from './pages/Playlist';
 import Downloads from './pages/Downloads';
 import Movies from './pages/Movies';
+import TV from './pages/TV';
 
 const AppContainer = styled.div`
   min-height: 100vh;
@@ -19,6 +20,11 @@ const Content = styled.main`
 `;
 
 function App() {
+  const location = useLocation();
+  const isTV = location.pathname === '/tv';
+
+  if (isTV) return <TV />;
+
   return (
     <AppContainer>
       <Navbar />
@@ -30,6 +36,7 @@ function App() {
           <Route path="/movies" element={<Movies />} />
           <Route path="/playlist" element={<Playlist />} />
           <Route path="/downloads" element={<Downloads />} />
+          <Route path="/tv" element={<TV />} />
         </Routes>
       </Content>
     </AppContainer>

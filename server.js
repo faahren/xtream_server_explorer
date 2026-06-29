@@ -43,18 +43,26 @@ function buildStreamUrl(streamType, streamId, extension = '') {
 // Get playlist data
 app.get('/api/playlist', async (req, res) => {
     try {
-        const response = await axios.get(buildApiUrl('get_live_streams'));
-        const streams = response.data;
-        
-        // Transform the data to match your current format
-        const transformedStreams = Object.values(streams).map(stream => ({
-            category_name: stream.category_name || '',
+        const [streamsRes, catsRes] = await Promise.all([
+            axios.get(buildApiUrl('get_live_streams')),
+            axios.get(buildApiUrl('get_live_categories')),
+        ]);
+
+        // Build category_id → category_name map
+        const catMap = {};
+        for (const cat of catsRes.data) {
+            catMap[String(cat.category_id)] = cat.category_name;
+        }
+
+        const transformedStreams = Object.values(streamsRes.data).map(stream => ({
+            category_id: stream.category_id,
+            category_name: catMap[String(stream.category_id)] || '',
             name: stream.name || '',
             stream_icon: stream.stream_icon || '',
             stream_url: buildStreamUrl('live', stream.stream_id, stream.container_extension),
             stream_type: stream.stream_type || 'live'
         }));
-        
+
         res.json(transformedStreams);
     } catch (error) {
         console.error('Error fetching playlist:', error);
@@ -68,16 +76,36 @@ app.get('/api/movies', async (req, res) => {
     let movies = {};
     try {
         if (fs.existsSync('downloads/movies.json') && refresh !== 'true') {
-            movies = JSON.parse(fs.readFileSync('downloads/movies.json', 'utf8'));
-            console.log('Movies file found, reading from file');
+            console.log('[movies] Cache found, reading from file...');
+            const raw = fs.readFileSync('downloads/movies.json', 'utf8');
+            console.log(`[movies] File size: ${(raw.length / 1024).toFixed(1)} KB`);
+            movies = JSON.parse(raw);
+            console.log(`[movies] Parsed ${(movies.movies || []).length} movies, ${(movies.categories || []).length} categories`);
         } else {
-            console.log('Movies file not found, fetching from TVHeadend');
-            const response = await axios.get(buildApiUrl('get_vod_streams'));
+            console.log('[movies] No cache, fetching streams from Xtream API...');
+            const t0 = Date.now();
+            let bytesReceived = 0;
+            const timer = setInterval(() => {
+                const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+                const kb = (bytesReceived / 1024).toFixed(1);
+                console.log(`[movies] ... ${elapsed}s elapsed, ${kb} KB received so far`);
+            }, 2000);
+            const response = await axios.get(buildApiUrl('get_vod_streams'), {
+                onDownloadProgress: (evt) => { bytesReceived = evt.loaded; }
+            });
+            clearInterval(timer);
+            console.log(`[movies] Streams downloaded in ${((Date.now() - t0) / 1000).toFixed(1)}s — ${response.data.length} items`);
             movies.movies = response.data;
+
+            console.log('[movies] Fetching categories...');
             const categories = await axios.get(buildApiUrl('get_vod_categories'));
+            console.log(`[movies] ${categories.data.length} categories received`);
             movies.categories = categories.data;
+
+            console.log('[movies] Saving to cache...');
             fs.writeFileSync('downloads/movies.json', JSON.stringify(movies));
             fs.writeFileSync('downloads/movies_categories.json', JSON.stringify(categories.data));
+            console.log('[movies] Cache saved');
         }
         res.json(movies);
     }
@@ -93,17 +121,35 @@ app.get('/api/series', async (req, res) => {
         let series;
         // If file containing series is found, read it
         if (fs.existsSync('downloads/series.json') && req.query.refresh !== 'true') {
-            console.log('Series file found, reading from file');
-            series = JSON.parse(fs.readFileSync('downloads/series.json', 'utf8'));
+            console.log('[series] Cache found, reading from file...');
+            const raw = fs.readFileSync('downloads/series.json', 'utf8').replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, '');
+            console.log(`[series] File size: ${(raw.length / 1024).toFixed(1)} KB`);
+            series = JSON.parse(raw);
+            console.log(`[series] Parsed ${Object.values(series).length} entries`);
         } else {
-            console.log('Series file not found, fetching from TVHeadend');
-            const response = await axios.get(buildApiUrl('get_series'));
+            console.log('[series] No cache, fetching from Xtream API...');
+            const t0 = Date.now();
+            let bytesReceived = 0;
+            const timer = setInterval(() => {
+                const elapsed = ((Date.now() - t0) / 1000).toFixed(1);
+                const kb = (bytesReceived / 1024).toFixed(1);
+                console.log(`[series] ... ${elapsed}s elapsed, ${kb} KB received so far`);
+            }, 2000);
+            const response = await axios.get(buildApiUrl('get_series'), {
+                onDownloadProgress: (evt) => { bytesReceived = evt.loaded; }
+            });
+            clearInterval(timer);
+            console.log(`[series] Download complete in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
             series = response.data;
+            const count = Object.values(series).length;
+            console.log(`[series] ${count} series received, saving to cache...`);
             fs.writeFileSync('downloads/series.json', JSON.stringify(series));
+            console.log('[series] Cache saved');
         }
 
-        
+
         // Transform series data
+        console.log('[series] Transforming data...');
         const transformedSeries = Object.values(series).map(s => ({
             num: s.num,
             name: s.name,
@@ -126,6 +172,7 @@ app.get('/api/series', async (req, res) => {
             category_ids: s.category_ids
         }));
         
+        console.log(`[series] Transformed ${transformedSeries.length} entries, sending response`);
         res.json(transformedSeries);
     } catch (error) {
         console.error('Error fetching series:', error);
@@ -274,6 +321,50 @@ app.get('/api/categories/:type', async (req, res) => {
     } catch (error) {
         console.error('Error fetching categories:', error);
         res.status(500).json({ error: 'Failed to fetch categories' });
+    }
+});
+
+// HLS stream proxy — follows redirects, rewrites manifest URLs, streams segments
+app.get('/api/stream-proxy', async (req, res) => {
+    const targetUrl = req.query.url;
+    if (!targetUrl) return res.status(400).send('Missing url');
+
+    res.setHeader('Access-Control-Allow-Origin', '*');
+
+    try {
+        const response = await axios.get(targetUrl, {
+            responseType: 'stream',
+            maxRedirects: 10,
+            timeout: 20000,
+            headers: { 'User-Agent': 'Mozilla/5.0' },
+        });
+
+        const contentType = response.headers['content-type'] || '';
+        const finalUrl = response.request?.res?.responseUrl || targetUrl;
+        const isM3U8 = contentType.includes('mpegurl') || targetUrl.includes('.m3u8');
+
+        if (isM3U8) {
+            res.setHeader('Content-Type', 'application/vnd.apple.mpegurl');
+            let body = '';
+            response.data.on('data', chunk => { body += chunk.toString(); });
+            response.data.on('end', () => {
+                const base = new URL(finalUrl);
+                const rewritten = body.split('\n').map(line => {
+                    const trimmed = line.trim();
+                    if (!trimmed || trimmed.startsWith('#')) return line;
+                    const absUrl = trimmed.startsWith('http') ? trimmed : new URL(trimmed, base).toString();
+                    return `/api/stream-proxy?url=${encodeURIComponent(absUrl)}`;
+                }).join('\n');
+                res.end(rewritten);
+            });
+        } else {
+            res.setHeader('Content-Type', response.headers['content-type'] || 'video/mp2t');
+            res.setHeader('Cache-Control', 'no-cache');
+            response.data.pipe(res);
+        }
+    } catch (err) {
+        console.error('[proxy] error:', err.message);
+        if (!res.headersSent) res.status(502).send('Proxy error');
     }
 });
 
