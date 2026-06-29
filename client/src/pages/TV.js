@@ -443,18 +443,18 @@ function TV() {
     setStatus('Connecting...');
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
-    // Force https to avoid mixed-content blocks on HTTPS pages
-    const hlsUrl = ch.stream_url.replace(/^http:\/\//, 'https://').replace(/\.[^/.]+$/, '') + '.m3u8';
+    const hlsUrl = ch.stream_url.replace(/\.[^/.]+$/, '') + '.m3u8';
+    const proxyUrl = `/api/stream-proxy?url=${encodeURIComponent(hlsUrl)}`;
 
     if (Hls.isSupported()) {
       const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
       hlsRef.current = hls;
-      hls.loadSource(hlsUrl);
+      hls.loadSource(proxyUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus('Playing'); video.play().catch(() => {}); });
       hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setStatus(`Error: ${d.details}`); });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
-      video.src = hlsUrl;
+      video.src = proxyUrl;
       video.play().catch(() => {});
       setStatus('Playing');
     }

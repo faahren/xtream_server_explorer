@@ -1,8 +1,14 @@
 const express = require('express');
 const cors = require('cors');
 const axios = require('axios');
+const http = require('http');
+const https = require('https');
 require('dotenv').config();
 const path = require('path');
+
+// Force IPv6 for outgoing stream requests to match the client's IP family
+const httpAgentV6 = new http.Agent({ family: 6 });
+const httpsAgentV6 = new https.Agent({ family: 6 });
 const fs = require('fs');
 
 const app = express();
@@ -34,7 +40,7 @@ function buildApiUrl(action, params = {}) {
 
 // Helper function to build stream URLs
 function buildStreamUrl(streamType, streamId, extension = '') {
-    const baseUrl = `https://${XTREAM_HOSTNAME}/${streamType}/${XTREAM_USER}/${XTREAM_PASSWORD}`;
+    const baseUrl = `http://${XTREAM_HOSTNAME}/${streamType}/${XTREAM_USER}/${XTREAM_PASSWORD}`;
     return extension ? `${baseUrl}/${streamId}.${extension}` : `${baseUrl}/${streamId}`;
 }
 
@@ -337,6 +343,19 @@ app.get('/api/stream-proxy', async (req, res) => {
             maxRedirects: 10,
             timeout: 20000,
             headers: { 'User-Agent': 'Mozilla/5.0' },
+            httpAgent: httpAgentV6,
+            httpsAgent: httpsAgentV6,
+        }).catch(async (err) => {
+            // IPv6 failed — fall back to default (IPv4)
+            if (err.code === 'ENETUNREACH' || err.code === 'EAI_AGAIN') {
+                return axios.get(targetUrl, {
+                    responseType: 'stream',
+                    maxRedirects: 10,
+                    timeout: 20000,
+                    headers: { 'User-Agent': 'Mozilla/5.0' },
+                });
+            }
+            throw err;
         });
 
         const contentType = response.headers['content-type'] || '';
