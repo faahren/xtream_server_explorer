@@ -436,7 +436,7 @@ function TV() {
     }
   }, []);
 
-  // Load a channel into HLS
+  // Load a channel into HLS — try direct first, fall back to proxy if CORS error
   const loadChannel = useCallback((ch) => {
     const video = videoRef.current;
     if (!video || !ch) return;
@@ -446,13 +446,28 @@ function TV() {
     const hlsUrl = ch.stream_url.replace(/\.[^/.]+$/, '') + '.m3u8';
     const proxyUrl = `/api/stream-proxy?url=${encodeURIComponent(hlsUrl)}`;
 
-    if (Hls.isSupported()) {
-      const hls = new Hls({ enableWorker: true, lowLatencyMode: true });
+    const tryLoad = (url, isRetry = false) => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+      const hls = new Hls({ enableWorker: true, lowLatencyMode: true, xhrSetup: (xhr) => { xhr.withCredentials = false; } });
       hlsRef.current = hls;
-      hls.loadSource(proxyUrl);
+      hls.loadSource(url);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus('Playing'); video.play().catch(() => {}); });
-      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setStatus(`Error: ${d.details}`); });
+      hls.on(Hls.Events.ERROR, (_, d) => {
+        if (d.fatal) {
+          if (!isRetry && (d.details === 'manifestLoadError' || d.details === 'manifestParsingError')) {
+            // Direct failed — retry via proxy
+            setStatus('Retrying via proxy...');
+            tryLoad(proxyUrl, true);
+          } else {
+            setStatus(`Error: ${d.details}`);
+          }
+        }
+      });
+    };
+
+    if (Hls.isSupported()) {
+      tryLoad(hlsUrl); // try direct first
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = proxyUrl;
       video.play().catch(() => {});
