@@ -89,7 +89,7 @@ function FavPopover({ channel, lists, itemsByList, anchorPos, onClose, onRefresh
         {channel.name}
       </PopoverItem>
       <PopoverDivider />
-      {lists.map(l => {
+      {lists.filter(l => !l.system).map(l => {
         const inList = itemsByList.get(l.id)?.has(channel.stream_url);
         return (
           <PopoverItem key={l.id} onClick={() => toggle(l.id)}>

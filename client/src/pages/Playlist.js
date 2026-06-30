@@ -814,7 +814,8 @@ function Playlist() {
                       const firstItem = items[0];
                       const firstCh = firstItem ? playlist.find(c => c.stream_url === firstItem.stream_url) : null;
                       const idMatch = firstCh?.stream_url.match(/\/(\d+)(?:\.\w+)?$/)?.[1];
-                      navigate(`/tv?source=list:${list.id}${idMatch ? `&id=${idMatch}` : ''}`);
+                      const src = list.id < 0 ? (list.id === -1 ? 'recent-channels' : 'top-channels') : `list:${list.id}`;
+                      navigate(`/tv?source=${src}${idMatch ? `&id=${idMatch}` : ''}`);
                     }}>▶</ListPlayBtn>
                     <ListChevron open={isOpen}>▶</ListChevron>
                   </ListItemHead>
@@ -830,7 +831,9 @@ function Playlist() {
                             : <div style={{ width: 24, height: 18, background: '#eef0fd', borderRadius: 3, flexShrink: 0 }} />
                           }
                           <ListChanName title={item.name}>{item.name}</ListChanName>
-                          <RemoveBtn title="Retirer" onClick={() => removeFromList(list.id, item.stream_url)}>×</RemoveBtn>
+                          {!list.system && (
+                            <RemoveBtn title="Retirer" onClick={() => removeFromList(list.id, item.stream_url)}>×</RemoveBtn>
+                          )}
                         </ListChanRow>
                       ))}
                     </ListBody>

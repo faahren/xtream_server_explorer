@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import styled from 'styled-components';
+import axios from 'axios';
 
 const HomeContainer = styled.div`
   max-width: 1200px;
@@ -151,14 +152,12 @@ function Home() {
   const navigate = useNavigate();
 
   useEffect(() => {
-    try {
-      const items = JSON.parse(localStorage.getItem('recentlyViewed') || '[]');
-      setRecentlyViewed(items);
-    } catch (_) {}
+    axios.get('/api/recently-viewed').then(r => setRecentlyViewed(r.data)).catch(() => {});
   }, []);
 
   const handleRecentClick = (item) => {
-    if (item.type === 'series') navigate(`/series/${item.id}`);
+    if (item.type === 'series') navigate(`/series/${item.item_id}`);
+    // movies have no detail page yet
   };
 
   return (
@@ -173,7 +172,7 @@ function Home() {
           <SectionTitle>Récemment consultés</SectionTitle>
           <RecentScroll>
             {recentlyViewed.map((item) => (
-              <RecentCard key={`${item.type}-${item.id}`} onClick={() => handleRecentClick(item)}>
+              <RecentCard key={`${item.type}-${item.item_id}`} onClick={() => handleRecentClick(item)}>
                 <RecentCover>
                   {item.cover && item.cover !== 'N/A' ? (
                     <RecentCoverImg src={item.cover} alt={item.name} />

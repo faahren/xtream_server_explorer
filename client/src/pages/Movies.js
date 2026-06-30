@@ -257,9 +257,16 @@ function Movies() {
 
       <MovieGrid>
         {filteredMovies.map(movie => (
-          <MovieCard key={movie.stream_id}>
-            <MovieImage 
-              src={movie.stream_icon || 'https://via.placeholder.com/300x450'} 
+          <MovieCard key={movie.stream_id} onClick={() => {
+            axios.post('/api/recently-viewed', {
+              type: 'movie',
+              item_id: String(movie.stream_id),
+              name: movie.name,
+              cover: movie.stream_icon || '',
+            }).catch(() => {});
+          }}>
+            <MovieImage
+              src={movie.stream_icon || 'https://via.placeholder.com/300x450'}
               alt={movie.name}
             />
             <MovieInfo>

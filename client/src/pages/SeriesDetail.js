@@ -202,12 +202,7 @@ const Toast = styled.div`
 `;
 
 function saveRecentlyViewed(item) {
-  try {
-    const existing = JSON.parse(localStorage.getItem('recentlyViewed') || '[]');
-    const filtered = existing.filter(i => !(i.id === item.id && i.type === item.type));
-    const updated = [item, ...filtered].slice(0, 15);
-    localStorage.setItem('recentlyViewed', JSON.stringify(updated));
-  } catch (_) {}
+  axios.post('/api/recently-viewed', item).catch(() => {});
 }
 
 function SeriesDetail() {
@@ -234,11 +229,10 @@ function SeriesDetail() {
       setSeriesData(response.data);
       if (response.data?.info) {
         saveRecentlyViewed({
-          id,
           type: 'series',
+          item_id: id,
           name: response.data.info.name,
           cover: response.data.info.cover,
-          timestamp: Date.now(),
         });
       }
     } catch (err) {

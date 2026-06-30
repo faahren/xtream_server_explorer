@@ -618,6 +618,7 @@ function TV() {
   const initialIndexResolvedRef = useRef(false);
   const volLevelRef = useRef(Number(localStorage.getItem('tv_volume') ?? 100));
   const mutedStateRef = useRef(localStorage.getItem('tv_muted') === 'true');
+  const recordedChannelRef = useRef(null); // guard: only record once per loadChannel call
 
   // Refresh lists + itemsByList (called on mount and after list mutations)
   const refreshListItems = useCallback(async () => {
@@ -707,6 +708,7 @@ function TV() {
     if (!video || !ch) return;
     setStatus('Connecting...');
     stopStallWatch();
+    recordedChannelRef.current = null; // reset guard for new channel
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     const hlsUrl = ch.stream_url.replace(/\.[^/.]+$/, '') + '.m3u8';
@@ -723,6 +725,16 @@ function TV() {
         setStatus('Playing');
         video.play().catch(() => {});
         startStallWatch(video, ch);
+        // Record channel watch — once per loadChannel call
+        if (recordedChannelRef.current !== ch.stream_url) {
+          recordedChannelRef.current = ch.stream_url;
+          axios.post('/api/channel-history', {
+            stream_url: ch.stream_url,
+            name: ch.name,
+            stream_icon: ch.stream_icon,
+            category_name: ch.category_name,
+          }).catch(() => {});
+        }
       });
       hls.on(Hls.Events.ERROR, (_, d) => {
         if (d.fatal) {

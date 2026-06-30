@@ -409,8 +409,10 @@ app.post('/api/lists', (req, res) => {
 });
 
 app.delete('/api/lists/:id', (req, res) => {
+  const id = Number(req.params.id);
+  if (id < 0) return res.status(403).json({ error: 'System lists cannot be deleted' });
   try {
-    db.deleteList(Number(req.params.id));
+    db.deleteList(id);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -443,6 +445,29 @@ app.delete('/api/lists/:id/items/:encodedUrl', (req, res) => {
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
+});
+
+// ── Recently viewed (series + movies) ────────────────────────────────────────
+
+app.get('/api/recently-viewed', (req, res) => {
+  try { res.json(db.getRecentlyViewed(20)); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+app.post('/api/recently-viewed', (req, res) => {
+  const { type, item_id, name, cover } = req.body;
+  if (!type || !item_id || !name) return res.status(400).json({ error: 'type, item_id and name required' });
+  try { db.recordRecentlyViewed({ type, item_id, name, cover }); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
+});
+
+// ── Channel history ───────────────────────────────────────────────────────────
+
+app.post('/api/channel-history', (req, res) => {
+  const { stream_url, name, stream_icon, category_name } = req.body;
+  if (!stream_url) return res.status(400).json({ error: 'stream_url required' });
+  try { db.recordChannelWatch({ stream_url, name, stream_icon, category_name }); res.json({ success: true }); }
+  catch (e) { res.status(500).json({ error: e.message }); }
 });
 
 // Serve React app for all other routes
