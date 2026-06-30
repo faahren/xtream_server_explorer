@@ -372,6 +372,83 @@ const ItemNum = styled.div`
   flex-shrink: 0;
 `;
 
+// ─── Source Dropdown ──────────────────────────────────────────────────────────
+
+const SourceDropWrap = styled.div`
+  position: relative;
+  margin: 0 0.75rem 0.5rem;
+  flex-shrink: 0;
+`;
+
+const SourceTrigger = styled.button`
+  width: 100%;
+  padding: 0.45rem 2rem 0.45rem 0.75rem;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 8px;
+  color: white;
+  font-size: 0.85rem;
+  text-align: left;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  &::after { content: '▾'; position: absolute; right: 0.6rem; top: 50%; transform: translateY(-50%); }
+  &:hover { background: rgba(255,255,255,0.14); }
+`;
+
+const SourceMenu = styled.div`
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0; right: 0;
+  background: rgba(15,15,20,0.98);
+  border: 1px solid rgba(255,255,255,0.12);
+  border-radius: 8px;
+  z-index: 50;
+  display: flex;
+  flex-direction: column;
+  max-height: 280px;
+`;
+
+const SourceSearch = styled.input`
+  padding: 0.45rem 0.75rem;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgba(255,255,255,0.1);
+  color: white;
+  font-size: 0.85rem;
+  outline: none;
+  &::placeholder { color: rgba(255,255,255,0.35); }
+`;
+
+const SourceList = styled.div`
+  overflow-y: auto;
+  flex: 1;
+  &::-webkit-scrollbar { width: 3px; }
+  &::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); }
+`;
+
+const SourceGroupLabel = styled.div`
+  padding: 0.3rem 0.75rem;
+  font-size: 0.7rem;
+  color: rgba(255,255,255,0.35);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+`;
+
+const SourceItem = styled.div`
+  padding: 0.45rem 0.75rem;
+  font-size: 0.85rem;
+  color: ${p => p.active ? '#667eea' : 'white'};
+  font-weight: ${p => p.active ? 600 : 400};
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  &:hover { background: rgba(255,255,255,0.07); }
+`;
+
 // ─── No channels fallback ─────────────────────────────────────────────────────
 
 const NoChannels = styled.div`
@@ -397,6 +474,83 @@ const BackBtn = styled.button`
   cursor: pointer;
   &:hover { background: #5a6fd8; }
 `;
+
+// ─── Source Dropdown Component ────────────────────────────────────────────────
+
+function SourceDropdown({ source, setSource, lists, channels }) {
+  const [open, setOpen] = React.useState(false);
+  const [search, setSearch] = React.useState('');
+  const ref = React.useRef(null);
+
+  React.useEffect(() => {
+    const onOut = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onOut);
+    return () => document.removeEventListener('mousedown', onOut);
+  }, []);
+
+  const categories = React.useMemo(() =>
+    [...new Set(channels.map(c => c.category_name).filter(Boolean))].sort(),
+    [channels]
+  );
+
+  const label = !source ? 'Toutes les chaînes'
+    : source.type === 'list' ? (lists.find(l => l.id === source.id)?.name || 'Liste')
+    : source.name;
+
+  const filteredLists = lists.filter(l => !search || l.name.toLowerCase().includes(search.toLowerCase()));
+  const filteredCats = categories.filter(c => !search || c.toLowerCase().includes(search.toLowerCase()));
+
+  const select = (s) => { setSource(s); setOpen(false); setSearch(''); };
+
+  return (
+    <SourceDropWrap ref={ref}>
+      <SourceTrigger onClick={() => { setOpen(o => !o); setSearch(''); }}>
+        {label}
+      </SourceTrigger>
+      {open && (
+        <SourceMenu>
+          <SourceSearch
+            autoFocus
+            placeholder="Rechercher..."
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+          />
+          <SourceList>
+            <SourceItem active={!source} onClick={() => select(null)}>Toutes les chaînes</SourceItem>
+            {filteredLists.length > 0 && (
+              <>
+                <SourceGroupLabel>Mes listes</SourceGroupLabel>
+                {filteredLists.map(l => (
+                  <SourceItem
+                    key={l.id}
+                    active={source?.type === 'list' && source.id === l.id}
+                    onClick={() => select({ type: 'list', id: l.id })}
+                  >
+                    ⭐ {l.name}
+                  </SourceItem>
+                ))}
+              </>
+            )}
+            {filteredCats.length > 0 && (
+              <>
+                <SourceGroupLabel>Catégories</SourceGroupLabel>
+                {filteredCats.map(c => (
+                  <SourceItem
+                    key={c}
+                    active={source?.type === 'cat' && source.name === c}
+                    onClick={() => select({ type: 'cat', name: c })}
+                  >
+                    {c}
+                  </SourceItem>
+                ))}
+              </>
+            )}
+          </SourceList>
+        </SourceMenu>
+      )}
+    </SourceDropWrap>
+  );
+}
 
 // ─── Component ────────────────────────────────────────────────────────────────
 
@@ -769,9 +923,15 @@ function TV() {
           <PanelOverlay onClick={() => setShowPanel(false)} />
           <Panel>
             <PanelHead>
-              <span>Channels ({channels.length})</span>
+              <span>Channels ({displayChannels.length})</span>
               <IconBtn onClick={() => setShowPanel(false)}>✕</IconBtn>
             </PanelHead>
+            <SourceDropdown
+              source={source}
+              setSource={setSource}
+              lists={lists}
+              channels={channels}
+            />
             <PanelSearch
               autoFocus
               placeholder="Search channels..."
