@@ -1,6 +1,6 @@
 /* global cast, chrome */
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import Hls from 'hls.js';
 import axios from 'axios';
@@ -403,13 +403,22 @@ const BackBtn = styled.button`
 function TV() {
   const navigate = useNavigate();
   const { state } = useLocation();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [channels, setChannels] = useState(state?.channels || []);
-  const [currentIndex, setCurrentIndex] = useState(() => {
-    if (!state?.channels?.length) return 0;
-    const idx = state.channels.findIndex(c => c === state?.channel);
-    return idx >= 0 ? idx : 0;
+  // All channels — always the full playlist
+  const [channels, setChannels] = useState([]);
+  // Channels shown in the panel — filtered by source
+  const [displayChannels, setDisplayChannels] = useState([]);
+  // source: null | { type: 'list', id: number } | { type: 'cat', name: string }
+  const [source, setSource] = useState(() => {
+    const s = searchParams.get('source');
+    if (!s) return null;
+    if (s.startsWith('list:')) return { type: 'list', id: Number(s.slice(5)) };
+    if (s.startsWith('cat:')) return { type: 'cat', name: s.slice(4) };
+    return null;
   });
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [lists, setLists] = useState([]);
 
   const [showOverlay, setShowOverlay] = useState(true);
   const [idle, setIdle] = useState(false);
@@ -429,12 +438,48 @@ function TV() {
   const channelListRef = useRef(null);
   const volumeRef = useRef(null);
 
-  // Fetch channels from API if not passed via state
+  // 1. Load full playlist on mount
   useEffect(() => {
-    if (!state?.channels?.length) {
+    const fromState = state?.channels;
+    if (fromState?.length) {
+      setChannels(fromState);
+    } else {
       axios.get('/api/playlist').then(r => setChannels(r.data)).catch(() => {});
     }
+    // Load lists for panel dropdown
+    axios.get('/api/lists').then(r => setLists(r.data)).catch(() => {});
   }, []);
+
+  // 2. Once channels are loaded, resolve ?id param and set currentIndex
+  useEffect(() => {
+    if (!channels.length) return;
+    const idParam = searchParams.get('id');
+    if (idParam) {
+      const idx = channels.findIndex(c => c.stream_url.includes(`/${idParam}`));
+      if (idx >= 0) setCurrentIndex(idx);
+    } else if (state?.channel) {
+      const idx = channels.findIndex(c => c === state.channel);
+      if (idx >= 0) setCurrentIndex(idx);
+    }
+  }, [channels]);
+
+  // 3. Apply source filter to build displayChannels
+  useEffect(() => {
+    if (!channels.length) { setDisplayChannels([]); return; }
+    if (!source) { setDisplayChannels(channels); return; }
+    if (source.type === 'cat') {
+      setDisplayChannels(channels.filter(c => c.category_name === source.name));
+      return;
+    }
+    if (source.type === 'list') {
+      axios.get(`/api/lists/${source.id}/items`).then(r => {
+        const urls = new Set(r.data.map(i => i.stream_url));
+        setDisplayChannels(channels.filter(c => urls.has(c.stream_url)));
+      }).catch(() => setDisplayChannels([]));
+      return;
+    }
+    setDisplayChannels(channels);
+  }, [channels, source]);
 
   // Load a channel into HLS — try direct first, fall back to proxy if CORS error
   const loadChannel = useCallback((ch) => {
@@ -460,10 +505,15 @@ function TV() {
     }
   }, []);
 
+  // 4. Load channel when currentIndex resolves (only once channels are ready)
+  const prevIndexRef = useRef(null);
   useEffect(() => {
+    if (!channels.length) return;
+    if (prevIndexRef.current === currentIndex) return;
+    prevIndexRef.current = currentIndex;
     if (channels[currentIndex]) loadChannel(channels[currentIndex]);
     return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [currentIndex, channels.length]);
+  }, [currentIndex, channels]);
 
   // Channel zap
   const zapTo = useCallback((idx) => {
@@ -481,6 +531,23 @@ function TV() {
       active?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 50);
   }, [channels, currentIndex]);
+
+  // Sync URL params to current state
+  useEffect(() => {
+    if (!channels.length) return;
+    const ch = channels[currentIndex];
+    if (!ch) return;
+    const idMatch = ch.stream_url.match(/\/(\d+)(?:\.\w+)?$/);
+    const id = idMatch ? idMatch[1] : null;
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (id) next.set('id', id); else next.delete('id');
+      if (source?.type === 'list') next.set('source', `list:${source.id}`);
+      else if (source?.type === 'cat') next.set('source', `cat:${source.name}`);
+      else next.delete('source');
+      return next;
+    }, { replace: true });
+  }, [currentIndex, source, channels]);
 
   // Overlay auto-hide
   const revealOverlay = useCallback(() => {
@@ -594,13 +661,9 @@ function TV() {
     touchStartY.current = null;
   };
 
-  const filteredChannels = panelSearch
-    ? channels.filter(c => c.name?.toLowerCase().includes(panelSearch.toLowerCase()))
-    : channels;
-
   const currentChannel = channels[currentIndex];
 
-  if (!channels.length && !state?.channels) {
+  if (!channels.length) {
     return (
       <NoChannels>
         <span>Loading channels...</span>
@@ -716,7 +779,10 @@ function TV() {
               onChange={e => setPanelSearch(e.target.value)}
             />
             <ChannelList ref={channelListRef}>
-              {filteredChannels.map((ch) => {
+              {(panelSearch
+                ? displayChannels.filter(c => c.name?.toLowerCase().includes(panelSearch.toLowerCase()))
+                : displayChannels
+              ).map((ch) => {
                 const realIdx = channels.indexOf(ch);
                 const isActive = realIdx === currentIndex;
                 return (
