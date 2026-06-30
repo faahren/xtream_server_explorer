@@ -755,7 +755,7 @@ function TV() {
     if (!channels.length) return;
     const idParam = searchParams.get('id');
     if (idParam) {
-      const idx = channels.findIndex(c => c.stream_url.includes(`/${idParam}`));
+      const idx = channels.findIndex(c => c.stream_url.match(/\/(\d+)(?:\.\w+)?$/)?.[1] === idParam);
       if (idx >= 0) setCurrentIndex(idx);
     } else if (state?.channel) {
       const idx = channels.findIndex(c => c === state.channel);

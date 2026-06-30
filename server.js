@@ -438,7 +438,7 @@ app.post('/api/lists/:id/items', (req, res) => {
 
 app.delete('/api/lists/:id/items/:encodedUrl', (req, res) => {
   try {
-    db.removeListItem(Number(req.params.id), decodeURIComponent(req.params.encodedUrl));
+    db.removeListItem(Number(req.params.id), req.params.encodedUrl);
     res.json({ success: true });
   } catch (e) {
     res.status(500).json({ error: e.message });
