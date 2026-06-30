@@ -599,8 +599,8 @@ function TV() {
   const [idle, setIdle] = useState(false);
   const [showPanel, setShowPanel] = useState(false);
   const [showVolume, setShowVolume] = useState(false);
-  const [volume, setVolume] = useState(100);
-  const [muted, setMuted] = useState(false);
+  const [volume, setVolume] = useState(() => Number(localStorage.getItem('tv_volume') ?? 100));
+  const [muted, setMuted] = useState(() => localStorage.getItem('tv_muted') === 'true');
   const [castAvailable, setCastAvailable] = useState(false);
   const [toast, setToast] = useState(null);
   const [panelSearch, setPanelSearch] = useState('');
@@ -615,6 +615,7 @@ function TV() {
   const stallTimerRef = useRef(null);
   const lastTimeRef = useRef(null);
   const reconnectCountRef = useRef(0);
+  const initialIndexResolvedRef = useRef(false);
 
   // Refresh lists + itemsByList (called on mount and after list mutations)
   const refreshListItems = useCallback(async () => {
@@ -641,18 +642,7 @@ function TV() {
     refreshListItems();
   }, []);
 
-  // 2. Once channels are loaded, resolve ?id param and set currentIndex
-  useEffect(() => {
-    if (!channels.length) return;
-    const idParam = searchParams.get('id');
-    if (idParam) {
-      const idx = channels.findIndex(c => c.stream_url.match(/\/(\d+)(?:\.\w+)?$/)?.[1] === idParam);
-      if (idx >= 0) setCurrentIndex(idx);
-    } else if (state?.channel) {
-      const idx = channels.findIndex(c => c === state.channel);
-      if (idx >= 0) setCurrentIndex(idx);
-    }
-  }, [channels]);
+  // 2. (merged into effect 4 — see below)
 
   // 3. Apply source filter to build displayChannels
   useEffect(() => {
@@ -747,10 +737,29 @@ function TV() {
   // Keep loadChannelRef in sync
   useEffect(() => { loadChannelRef.current = loadChannel; }, [loadChannel]);
 
-  // 4. Load channel when currentIndex resolves (only once channels are ready)
+  // 4. Resolve ?id param on first channel load, then load channel (no double-load)
   const prevIndexRef = useRef(null);
   useEffect(() => {
     if (!channels.length) return;
+
+    // First time channels arrive: determine correct starting index before loading anything
+    if (!initialIndexResolvedRef.current) {
+      initialIndexResolvedRef.current = true;
+      const idParam = searchParams.get('id');
+      let targetIndex = 0;
+      if (idParam) {
+        const idx = channels.findIndex(c => c.stream_url.match(/\/(\d+)(?:\.\w+)?$/)?.[1] === idParam);
+        if (idx >= 0) targetIndex = idx;
+      } else if (state?.channel) {
+        const idx = channels.findIndex(c => c === state.channel);
+        if (idx >= 0) targetIndex = idx;
+      }
+      if (targetIndex !== currentIndex) {
+        setCurrentIndex(targetIndex);
+        return; // effect will re-run with correct index, no premature load
+      }
+    }
+
     if (prevIndexRef.current === currentIndex) return;
     prevIndexRef.current = currentIndex;
     if (channels[currentIndex]) loadChannel(channels[currentIndex]);
@@ -892,12 +901,14 @@ function TV() {
     return () => window.removeEventListener('keydown', onKey);
   }, [currentIndex, zapTo, revealOverlay, navigate]);
 
-  // Sync volume/mute to video element
+  // Sync volume/mute to video element + persist to localStorage
   useEffect(() => {
     const video = videoRef.current;
     if (!video) return;
     video.volume = muted ? 0 : volume / 100;
     video.muted = muted;
+    localStorage.setItem('tv_volume', volume);
+    localStorage.setItem('tv_muted', muted);
   }, [volume, muted]);
 
   // Close volume popup on outside click
