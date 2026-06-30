@@ -10,6 +10,7 @@ const path = require('path');
 const httpAgentV6 = new http.Agent({ family: 6 });
 const httpsAgentV6 = new https.Agent({ family: 6 });
 const fs = require('fs');
+const db = require('./db');
 
 const app = express();
 const PORT = process.env.PORT || 5000;
@@ -385,6 +386,63 @@ app.get('/api/stream-proxy', async (req, res) => {
         console.error('[proxy] error:', err.message);
         if (!res.headersSent) res.status(502).send('Proxy error');
     }
+});
+
+// ── Lists API ────────────────────────────────────────────────────────────────
+
+app.get('/api/lists', (req, res) => {
+  try {
+    res.json(db.getLists());
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/lists', (req, res) => {
+  const { name } = req.body;
+  if (!name?.trim()) return res.status(400).json({ error: 'name required' });
+  try {
+    res.json(db.createList(name.trim()));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/lists/:id', (req, res) => {
+  try {
+    db.deleteList(Number(req.params.id));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.get('/api/lists/:id/items', (req, res) => {
+  try {
+    res.json(db.getListItems(Number(req.params.id)));
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.post('/api/lists/:id/items', (req, res) => {
+  const { stream_url, name, stream_icon, category_name } = req.body;
+  if (!stream_url) return res.status(400).json({ error: 'stream_url required' });
+  try {
+    db.addListItem(Number(req.params.id), { stream_url, name, stream_icon, category_name });
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+app.delete('/api/lists/:id/items/:encodedUrl', (req, res) => {
+  try {
+    db.removeListItem(Number(req.params.id), decodeURIComponent(req.params.encodedUrl));
+    res.json({ success: true });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
 });
 
 // Serve React app for all other routes

@@ -12,16 +12,22 @@
     "heroku-postbuild": "npm run install-client && npm run build"
   },
   "dependencies": {
-    "express": "^4.18.2",
+    "aria2": "^1.0.0",
+    "axios": "^1.6.0",
+    "better-sqlite3": "^12.11.1",
     "cors": "^2.8.5",
     "dotenv": "^16.3.1",
-    "axios": "^1.6.0",
-    "aria2": "^1.0.0"
+    "express": "^4.18.2"
   },
   "devDependencies": {
     "nodemon": "^3.0.1"
   },
-  "keywords": ["iptv", "streaming", "series", "playlist"],
+  "keywords": [
+    "iptv",
+    "streaming",
+    "series",
+    "playlist"
+  ],
   "author": "Your Name",
   "license": "MIT"
 }
