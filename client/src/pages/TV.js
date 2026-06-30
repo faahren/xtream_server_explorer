@@ -372,6 +372,61 @@ const ItemNum = styled.div`
   flex-shrink: 0;
 `;
 
+// ─── Favorites ───────────────────────────────────────────────────────────────
+
+const StarBtn = styled.button`
+  background: none;
+  border: none;
+  color: ${p => p.active ? '#f5c518' : 'rgba(255,255,255,0.35)'};
+  font-size: 1rem;
+  cursor: pointer;
+  padding: 0.1rem 0.3rem;
+  flex-shrink: 0;
+  line-height: 1;
+  &:hover { color: #f5c518; }
+`;
+
+const Popover = styled.div`
+  position: fixed;
+  background: rgba(15,15,20,0.98);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px;
+  padding: 0.5rem 0;
+  z-index: 100;
+  min-width: 180px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+`;
+
+const PopoverItem = styled.div`
+  padding: 0.5rem 1rem;
+  font-size: 0.85rem;
+  color: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  &:hover { background: rgba(255,255,255,0.08); }
+`;
+
+const PopoverDivider = styled.div`
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+  margin: 0.25rem 0;
+`;
+
+const NewListInput = styled.input`
+  margin: 0.25rem 0.75rem;
+  padding: 0.35rem 0.5rem;
+  background: rgba(255,255,255,0.08);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  color: white;
+  font-size: 0.8rem;
+  outline: none;
+  width: calc(100% - 1.5rem);
+  &::placeholder { color: rgba(255,255,255,0.35); }
+`;
+
 // ─── Source Dropdown ──────────────────────────────────────────────────────────
 
 const SourceDropWrap = styled.div`
@@ -552,6 +607,81 @@ function SourceDropdown({ source, setSource, lists, channels }) {
   );
 }
 
+// ─── FavPopover Component ─────────────────────────────────────────────────────
+
+function FavPopover({ channel, lists, itemsByList, anchorPos, onClose, onRefresh }) {
+  const ref = React.useRef(null);
+  const [newListName, setNewListName] = React.useState('');
+  const [creating, setCreating] = React.useState(false);
+
+  React.useEffect(() => {
+    const onOut = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    document.addEventListener('mousedown', onOut);
+    return () => document.removeEventListener('mousedown', onOut);
+  }, [onClose]);
+
+  const toggle = async (listId) => {
+    const inList = itemsByList.get(listId)?.has(channel.stream_url);
+    if (inList) {
+      await axios.delete(`/api/lists/${listId}/items/${encodeURIComponent(channel.stream_url)}`);
+    } else {
+      await axios.post(`/api/lists/${listId}/items`, {
+        stream_url: channel.stream_url,
+        name: channel.name,
+        stream_icon: channel.stream_icon,
+        category_name: channel.category_name,
+      });
+    }
+    onRefresh();
+  };
+
+  const createAndAdd = async () => {
+    if (!newListName.trim()) return;
+    const res = await axios.post('/api/lists', { name: newListName.trim() });
+    await axios.post(`/api/lists/${res.data.id}/items`, {
+      stream_url: channel.stream_url,
+      name: channel.name,
+      stream_icon: channel.stream_icon,
+      category_name: channel.category_name,
+    });
+    setNewListName('');
+    setCreating(false);
+    onRefresh();
+  };
+
+  return (
+    <Popover ref={ref} style={{ top: anchorPos.y, left: anchorPos.x }}>
+      <PopoverItem style={{ color: 'rgba(255,255,255,0.5)', fontSize: '0.75rem', cursor: 'default' }}>
+        {channel.name}
+      </PopoverItem>
+      <PopoverDivider />
+      {lists.map(l => {
+        const inList = itemsByList.get(l.id)?.has(channel.stream_url);
+        return (
+          <PopoverItem key={l.id} onClick={() => toggle(l.id)}>
+            <span>{inList ? '✓' : '+'}</span>
+            {l.name}
+          </PopoverItem>
+        );
+      })}
+      <PopoverDivider />
+      {creating ? (
+        <NewListInput
+          autoFocus
+          placeholder="Nom de la liste..."
+          value={newListName}
+          onChange={e => setNewListName(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') createAndAdd(); if (e.key === 'Escape') setCreating(false); }}
+        />
+      ) : (
+        <PopoverItem onClick={() => setCreating(true)}>
+          <span>+</span> Nouvelle liste
+        </PopoverItem>
+      )}
+    </Popover>
+  );
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 function TV() {
@@ -573,6 +703,9 @@ function TV() {
   });
   const [currentIndex, setCurrentIndex] = useState(0);
   const [lists, setLists] = useState([]);
+  // Map<listId, Set<stream_url>> — for O(1) membership check
+  const [itemsByList, setItemsByList] = useState(new Map());
+  const [favPopover, setFavPopover] = useState(null); // { channel, x, y }
 
   const [showOverlay, setShowOverlay] = useState(true);
   const [idle, setIdle] = useState(false);
@@ -592,7 +725,21 @@ function TV() {
   const channelListRef = useRef(null);
   const volumeRef = useRef(null);
 
-  // 1. Load full playlist on mount
+  // Refresh lists + itemsByList (called on mount and after list mutations)
+  const refreshListItems = useCallback(async () => {
+    const listsRes = await axios.get('/api/lists').catch(() => ({ data: [] }));
+    setLists(listsRes.data);
+    const entries = await Promise.all(
+      listsRes.data.map(l =>
+        axios.get(`/api/lists/${l.id}/items`)
+          .then(r => [l.id, new Set(r.data.map(i => i.stream_url))])
+          .catch(() => [l.id, new Set()])
+      )
+    );
+    setItemsByList(new Map(entries));
+  }, []);
+
+  // 1. Load full playlist on mount + initial lists fetch
   useEffect(() => {
     const fromState = state?.channels;
     if (fromState?.length) {
@@ -600,8 +747,7 @@ function TV() {
     } else {
       axios.get('/api/playlist').then(r => setChannels(r.data)).catch(() => {});
     }
-    // Load lists for panel dropdown
-    axios.get('/api/lists').then(r => setLists(r.data)).catch(() => {});
+    refreshListItems();
   }, []);
 
   // 2. Once channels are loaded, resolve ?id param and set currentIndex
@@ -858,6 +1004,14 @@ function TV() {
               <ChannelNameText>{currentChannel?.name || '—'}</ChannelNameText>
               <ChannelNumText>CH {currentIndex + 1} · {currentChannel?.category_name}</ChannelNumText>
             </div>
+            <StarBtn
+              active={currentChannel && lists.some(l => itemsByList.get(l.id)?.has(currentChannel.stream_url))}
+              onClick={(e) => {
+                if (!currentChannel) return;
+                const rect = e.currentTarget.getBoundingClientRect();
+                setFavPopover({ channel: currentChannel, x: rect.left - 190, y: rect.bottom + 4 });
+              }}
+            >⭐</StarBtn>
           </ChannelMeta>
           <TopActions>
             <IconBtn onClick={() => setShowPanel(p => !p)} title="Channel list (L)">☰</IconBtn>
@@ -917,6 +1071,18 @@ function TV() {
         </BottomBar>
       </Overlay>
 
+      {/* Favorites popover */}
+      {favPopover && (
+        <FavPopover
+          channel={favPopover.channel}
+          lists={lists}
+          itemsByList={itemsByList}
+          anchorPos={{ x: favPopover.x, y: favPopover.y }}
+          onClose={() => setFavPopover(null)}
+          onRefresh={() => { refreshListItems(); setFavPopover(null); }}
+        />
+      )}
+
       {/* Channel panel */}
       {showPanel && (
         <>
@@ -960,6 +1126,14 @@ function TV() {
                       <ItemName>{ch.name}</ItemName>
                       <ItemCat>{ch.category_name}</ItemCat>
                     </ItemInfo>
+                    <StarBtn
+                      active={lists.some(l => itemsByList.get(l.id)?.has(ch.stream_url))}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setFavPopover({ channel: ch, x: rect.left - 190, y: rect.top });
+                      }}
+                    >⭐</StarBtn>
                     <ItemNum>{realIdx + 1}</ItemNum>
                   </ChannelItem>
                 );
