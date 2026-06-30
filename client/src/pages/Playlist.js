@@ -809,7 +809,13 @@ function Playlist() {
                     <ListDot />
                     <ListName title={list.name}>{list.name}</ListName>
                     <ListBadge>{items.length}</ListBadge>
-                    <ListPlayBtn title="Ouvrir en TV" onClick={e => { e.stopPropagation(); navigate(`/tv?source=list:${list.id}`); }}>▶</ListPlayBtn>
+                    <ListPlayBtn title="Ouvrir en TV" onClick={e => {
+                      e.stopPropagation();
+                      const firstItem = items[0];
+                      const firstCh = firstItem ? playlist.find(c => c.stream_url === firstItem.stream_url) : null;
+                      const idMatch = firstCh?.stream_url.match(/\/(\d+)(?:\.\w+)?$/)?.[1];
+                      navigate(`/tv?source=list:${list.id}${idMatch ? `&id=${idMatch}` : ''}`);
+                    }}>▶</ListPlayBtn>
                     <ListChevron open={isOpen}>▶</ListChevron>
                   </ListItemHead>
                   {isOpen && (

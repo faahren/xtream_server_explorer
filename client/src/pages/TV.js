@@ -1,5 +1,5 @@
 /* global cast, chrome */
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import styled, { keyframes } from 'styled-components';
 import Hls from 'hls.js';
@@ -673,7 +673,7 @@ function TV() {
   }, [channels, source]);
 
   const MAX_RECONNECTS = 3;
-  const STALL_TIMEOUT_MS = 10000;
+  const STALL_TIMEOUT_MS = 5000;
 
   const stopStallWatch = useCallback(() => {
     clearInterval(stallTimerRef.current);
@@ -771,12 +771,31 @@ function TV() {
     clearTimeout(toastTimer.current);
     setToast({ name: ch.name, icon: ch.stream_icon, num: clamped + 1 });
     toastTimer.current = setTimeout(() => setToast(null), 2500);
-    // Scroll channel list to active item
     setTimeout(() => {
       const active = channelListRef.current?.querySelector('[data-active="true"]');
       active?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
     }, 50);
   }, [channels, currentIndex]);
+
+  // Navigate within displayChannels (respects active list/category filter)
+  const zapInContext = useCallback((direction) => {
+    const list = displayChannels.length ? displayChannels : channels;
+    const dispIdx = list.findIndex(c => c === channels[currentIndex]);
+    const nextDisp = dispIdx + direction;
+    if (nextDisp < 0 || nextDisp >= list.length) return;
+    zapTo(channels.indexOf(list[nextDisp]));
+  }, [displayChannels, channels, currentIndex, zapTo]);
+
+  const canGoPrev = useMemo(() => {
+    const list = displayChannels.length ? displayChannels : channels;
+    return list.findIndex(c => c === channels[currentIndex]) > 0;
+  }, [displayChannels, channels, currentIndex]);
+
+  const canGoNext = useMemo(() => {
+    const list = displayChannels.length ? displayChannels : channels;
+    const idx = list.findIndex(c => c === channels[currentIndex]);
+    return idx >= 0 && idx < list.length - 1;
+  }, [displayChannels, channels, currentIndex]);
 
   // Sync URL params to current state
   useEffect(() => {
@@ -842,8 +861,8 @@ function TV() {
       if (e.target.tagName === 'INPUT') return;
       switch (e.key) {
         case 'Escape':    navigate(-1); break;
-        case 'ArrowUp':   e.preventDefault(); zapTo(currentIndex - 1); revealOverlay(); break;
-        case 'ArrowDown': e.preventDefault(); zapTo(currentIndex + 1); revealOverlay(); break;
+        case 'ArrowUp':   e.preventDefault(); zapInContext(-1); revealOverlay(); break;
+        case 'ArrowDown': e.preventDefault(); zapInContext(1); revealOverlay(); break;
         case 'l': case 'L': setShowPanel(p => !p); break;
         case 'f': case 'F': videoRef.current?.requestFullscreen?.(); break;
         case 'm': case 'M': setMuted(m => !m); revealOverlay(); break;
@@ -902,7 +921,7 @@ function TV() {
   const onTouchEnd = (e) => {
     if (touchStartY.current === null) return;
     const dy = touchStartY.current - e.changedTouches[0].clientY;
-    if (Math.abs(dy) > 60) zapTo(dy > 0 ? currentIndex + 1 : currentIndex - 1);
+    if (Math.abs(dy) > 60) zapInContext(dy > 0 ? 1 : -1);
     else revealOverlay();
     touchStartY.current = null;
   };
@@ -967,14 +986,14 @@ function TV() {
 
         <BottomBar visible={showOverlay}>
           <ZapBtn
-            onClick={() => { zapTo(currentIndex - 1); revealOverlay(); }}
-            disabled={currentIndex === 0}
+            onClick={() => { zapInContext(-1); revealOverlay(); }}
+            disabled={!canGoPrev}
           >
             ‹ Prev
           </ZapBtn>
           <ZapBtn
-            onClick={() => { zapTo(currentIndex + 1); revealOverlay(); }}
-            disabled={currentIndex >= channels.length - 1}
+            onClick={() => { zapInContext(1); revealOverlay(); }}
+            disabled={!canGoNext}
           >
             Next ›
           </ZapBtn>
