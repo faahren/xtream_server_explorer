@@ -612,6 +612,9 @@ function TV() {
   const toastTimer = useRef(null);
   const channelListRef = useRef(null);
   const volumeRef = useRef(null);
+  const stallTimerRef = useRef(null);
+  const lastTimeRef = useRef(null);
+  const reconnectCountRef = useRef(0);
 
   // Refresh lists + itemsByList (called on mount and after list mutations)
   const refreshListItems = useCallback(async () => {
@@ -669,11 +672,43 @@ function TV() {
     setDisplayChannels(channels);
   }, [channels, source]);
 
-  // Load a channel into HLS — try direct first, fall back to proxy if CORS error
+  const MAX_RECONNECTS = 3;
+  const STALL_TIMEOUT_MS = 10000;
+
+  const stopStallWatch = useCallback(() => {
+    clearInterval(stallTimerRef.current);
+    stallTimerRef.current = null;
+  }, []);
+
+  // loadChannel is declared below but referenced in startStallWatch via ref
+  const loadChannelRef = useRef(null);
+
+  const startStallWatch = useCallback((video, ch) => {
+    stopStallWatch();
+    lastTimeRef.current = video.currentTime;
+    stallTimerRef.current = setInterval(() => {
+      if (!video || video.paused || video.ended) return;
+      if (video.currentTime === lastTimeRef.current) {
+        // Stream stalled
+        stopStallWatch();
+        if (reconnectCountRef.current >= MAX_RECONNECTS) {
+          setStatus(`Stream indisponible après ${MAX_RECONNECTS} tentatives`);
+          return;
+        }
+        reconnectCountRef.current += 1;
+        setStatus(`Reconnexion... (${reconnectCountRef.current}/${MAX_RECONNECTS})`);
+        loadChannelRef.current?.(ch);
+      }
+      lastTimeRef.current = video.currentTime;
+    }, STALL_TIMEOUT_MS);
+  }, [stopStallWatch]);
+
+  // Load a channel into HLS with stall detection + auto-reconnect
   const loadChannel = useCallback((ch) => {
     const video = videoRef.current;
     if (!video || !ch) return;
     setStatus('Connecting...');
+    stopStallWatch();
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
 
     const hlsUrl = ch.stream_url.replace(/\.[^/.]+$/, '') + '.m3u8';
@@ -684,14 +719,33 @@ function TV() {
       hlsRef.current = hls;
       hls.loadSource(proxyUrl);
       hls.attachMedia(video);
-      hls.on(Hls.Events.MANIFEST_PARSED, () => { setStatus('Playing'); video.play().catch(() => {}); });
-      hls.on(Hls.Events.ERROR, (_, d) => { if (d.fatal) setStatus(`Error: ${d.details}`); });
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        setStatus('Playing');
+        video.play().catch(() => {});
+        startStallWatch(video, ch);
+      });
+      hls.on(Hls.Events.ERROR, (_, d) => {
+        if (d.fatal) {
+          stopStallWatch();
+          if (reconnectCountRef.current < MAX_RECONNECTS) {
+            reconnectCountRef.current += 1;
+            setStatus(`Reconnexion... (${reconnectCountRef.current}/${MAX_RECONNECTS})`);
+            setTimeout(() => loadChannelRef.current?.(ch), 2000);
+          } else {
+            setStatus(`Stream indisponible après ${MAX_RECONNECTS} tentatives`);
+          }
+        }
+      });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
       video.src = proxyUrl;
       video.play().catch(() => {});
       setStatus('Playing');
+      startStallWatch(video, ch);
     }
-  }, []);
+  }, [stopStallWatch, startStallWatch]);
+
+  // Keep loadChannelRef in sync
+  useEffect(() => { loadChannelRef.current = loadChannel; }, [loadChannel]);
 
   // 4. Load channel when currentIndex resolves (only once channels are ready)
   const prevIndexRef = useRef(null);
@@ -700,12 +754,16 @@ function TV() {
     if (prevIndexRef.current === currentIndex) return;
     prevIndexRef.current = currentIndex;
     if (channels[currentIndex]) loadChannel(channels[currentIndex]);
-    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
+    return () => {
+      stopStallWatch();
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
   }, [currentIndex, channels]);
 
-  // Channel zap
+  // Channel zap — reset reconnect counter on manual channel change
   const zapTo = useCallback((idx) => {
     if (!channels.length) return;
+    reconnectCountRef.current = 0;
     const clamped = Math.max(0, Math.min(idx, channels.length - 1));
     if (clamped === currentIndex) return;
     setCurrentIndex(clamped);
