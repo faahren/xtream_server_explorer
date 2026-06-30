@@ -616,6 +616,8 @@ function TV() {
   const lastTimeRef = useRef(null);
   const reconnectCountRef = useRef(0);
   const initialIndexResolvedRef = useRef(false);
+  const volLevelRef = useRef(Number(localStorage.getItem('tv_volume') ?? 100));
+  const mutedStateRef = useRef(localStorage.getItem('tv_muted') === 'true');
 
   // Refresh lists + itemsByList (called on mount and after list mutations)
   const refreshListItems = useCallback(async () => {
@@ -675,11 +677,17 @@ function TV() {
 
   const startStallWatch = useCallback((video, ch) => {
     stopStallWatch();
-    lastTimeRef.current = video.currentTime;
+    // Wait one interval before starting — gives the stream time to buffer initially
+    lastTimeRef.current = null;
     stallTimerRef.current = setInterval(() => {
       if (!video || video.paused || video.ended) return;
-      if (video.currentTime === lastTimeRef.current) {
-        // Stream stalled
+      if (lastTimeRef.current === null) {
+        // First tick: just record current time, don't check yet
+        lastTimeRef.current = video.currentTime;
+        return;
+      }
+      if (video.currentTime === lastTimeRef.current && video.readyState >= 3) {
+        // Stream stalled (readyState >= 3 = HAVE_FUTURE_DATA, ruling out initial buffering)
         stopStallWatch();
         if (reconnectCountRef.current >= MAX_RECONNECTS) {
           setStatus(`Stream indisponible après ${MAX_RECONNECTS} tentatives`);
@@ -710,6 +718,8 @@ function TV() {
       hls.loadSource(proxyUrl);
       hls.attachMedia(video);
       hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        video.volume = mutedStateRef.current ? 0 : volLevelRef.current / 100;
+        video.muted = mutedStateRef.current;
         setStatus('Playing');
         video.play().catch(() => {});
         startStallWatch(video, ch);
@@ -727,6 +737,8 @@ function TV() {
         }
       });
     } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+      video.volume = mutedStateRef.current ? 0 : volLevelRef.current / 100;
+      video.muted = mutedStateRef.current;
       video.src = proxyUrl;
       video.play().catch(() => {});
       setStatus('Playing');
@@ -903,18 +915,21 @@ function TV() {
 
   // Sync volume/mute to video element + persist to localStorage
   useEffect(() => {
+    volLevelRef.current = volume;
+    mutedStateRef.current = muted;
+
+    localStorage.setItem('tv_volume', volume);
+    localStorage.setItem('tv_muted', muted);
     const video = videoRef.current;
     if (!video) return;
     video.volume = muted ? 0 : volume / 100;
     video.muted = muted;
-    localStorage.setItem('tv_volume', volume);
-    localStorage.setItem('tv_muted', muted);
   }, [volume, muted]);
 
   // Close volume popup on outside click
   useEffect(() => {
     if (!showVolume) return;
-    const onClick = (e) => { if (volumeRef.current && !volumeRef.current.contains(e.target)) setShowVolume(false); };
+    const onClick = (e) => { if (volLevelRef.current && !volLevelRef.current.contains(e.target)) setShowVolume(false); };
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [showVolume]);
