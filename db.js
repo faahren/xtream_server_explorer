@@ -1,5 +1,6 @@
 const Database = require('better-sqlite3');
 const path = require('path');
+const fs = require('fs');
 
 const DB_PATH = path.join(__dirname, 'downloads', 'db.sqlite');
 
@@ -7,6 +8,7 @@ let _db;
 
 function getDb() {
   if (!_db) {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
     _db = new Database(DB_PATH);
     _db.pragma('journal_mode = WAL');
     _db.pragma('foreign_keys = ON');
